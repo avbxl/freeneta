@@ -453,7 +453,7 @@ class Freeneta:
     def set_ip_for_selected(self) -> None:
         dev = self._selected_device()
         if not dev:
-            messagebox.showinfo("No selection", "Pick a device first. Telepathy support is still pending.")
+            messagebox.showinfo("No selection", "Pick a device first.")
             return
         ip = simpledialog.askstring("Set IP", "New IP address:", initialvalue=dev.ip if dev.ip != "0.0.0.0" else "192.168.0.10")
         if not ip:
@@ -493,7 +493,7 @@ class Freeneta:
         if not dev:
             messagebox.showinfo("No selection", "Pick a device first.")
             return
-        if not messagebox.askyesno("Reset communication", f"Reset communication parameters for {dev.mac}?\n\nThis is the part where regret often begins."):
+        if not messagebox.askyesno("Reset communication", f"Reset communication parameters for {dev.mac}?\n\n"):
             return
         try:
             dcp = self._get_dcp()
@@ -608,7 +608,7 @@ class Freeneta:
         self.canvas.create_text(
             w / 2,
             h - 24,
-            text="Visualized as host-to-device discovery. Physical switch ports and link paths require LLDP/SNMP/MAC-table data, because DCP isn't wizardry.",
+            text="Visualized as host-to-device discovery. Physical switch ports and link paths require LLDP/SNMP/MAC-table data.",
             font=("Segoe UI", 9),
             fill=c["muted"],
         )
@@ -689,7 +689,7 @@ class Freeneta:
         self._update_tree_columns()
         if self.ping_monitor_var.get():
             self._ensure_ping_monitor_running()
-            self.status_var.set("Ping monitor enabled. Because staring at static data wasn't enough.")
+            self.status_var.set("Ping monitor enabled.")
         else:
             self.ping_monitor_stop.set()
             self.status_var.set("Ping monitor disabled.")
