@@ -729,13 +729,25 @@ class Freeneta:
             cmd = ["ping", "-n", "1", "-w", "1000", ip]
         else:
             cmd = ["ping", "-c", "1", "-W", "1", ip]
+
         try:
-            completed = subprocess.run(cmd, capture_output=True, text=True, timeout=3)
+            run_kwargs = {
+                "capture_output": True,
+                "text": True,
+                "timeout": 3,
+            }
+
+            if is_windows:
+                run_kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
+
+            completed = subprocess.run(cmd, **run_kwargs)
             output = f"{completed.stdout}\n{completed.stderr}"
             latency = self._extract_ping_ms(output)
+
             if completed.returncode == 0:
                 return "Online", latency
             return "Offline", latency
+
         except subprocess.TimeoutExpired:
             return "Timeout", ""
         except Exception:
