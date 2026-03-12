@@ -21,6 +21,147 @@ except Exception:
     DCP = None
 
 
+class AutoScrollbar(ttk.Scrollbar):
+    def set(self, first, last):
+        first = float(first)
+        last = float(last)
+        if first <= 0.0 and last >= 1.0:
+            if self.winfo_ismapped():
+                self.grid_remove()
+        else:
+            if not self.winfo_ismapped():
+                self.grid()
+        super().set(first, last)
+
+
+class ScrollableFrame(ttk.Frame):
+    def __init__(self, parent, *args, **kwargs):
+        super().__init__(parent, *args, **kwargs)
+        self.canvas = tk.Canvas(self, highlightthickness=0, borderwidth=0)
+        self.v_scrollbar = AutoScrollbar(self, orient="vertical", command=self.canvas.yview)
+        self.canvas.configure(yscrollcommand=self.v_scrollbar.set)
+
+        self.content = ttk.Frame(self.canvas)
+        self.window_id = self.canvas.create_window((0, 0), window=self.content, anchor="nw")
+
+        self.canvas.grid(row=0, column=0, sticky="nsew")
+        self.v_scrollbar.grid(row=0, column=1, sticky="ns")
+        self.v_scrollbar.grid_remove()
+        self.grid_rowconfigure(0, weight=1)
+        self.grid_columnconfigure(0, weight=1)
+
+        self.content.bind("<Configure>", self._on_content_configure)
+        self.canvas.bind("<Configure>", self._on_canvas_configure)
+        self.canvas.bind_all("<MouseWheel>", self._on_mousewheel, add="+")
+        self.canvas.bind_all("<Button-4>", self._on_linux_scroll_up, add="+")
+        self.canvas.bind_all("<Button-5>", self._on_linux_scroll_down, add="+")
+
+    def _on_content_configure(self, _event=None):
+        self.canvas.configure(scrollregion=self.canvas.bbox("all"))
+        self.after_idle(self._update_scrollbar_visibility)
+
+    def _on_canvas_configure(self, event):
+        self.canvas.itemconfigure(self.window_id, width=event.width)
+        self.update_idletasks()
+        content_height = self.content.winfo_reqheight()
+        self.canvas.itemconfigure(self.window_id, height=max(event.height, content_height))
+        self.after_idle(self._update_scrollbar_visibility)
+
+    def _update_scrollbar_visibility(self):
+        bbox = self.canvas.bbox("all")
+        if not bbox:
+            self.v_scrollbar.grid_remove()
+            return
+        _, _, _, content_height = bbox
+        canvas_height = max(self.canvas.winfo_height(), 1)
+        if content_height <= canvas_height:
+            self.v_scrollbar.grid_remove()
+            self.canvas.yview_moveto(0)
+        else:
+            self.v_scrollbar.grid()
+
+    def _pointer_inside(self):
+        widget = self.winfo_containing(self.winfo_pointerx(), self.winfo_pointery())
+        while widget is not None:
+            if widget == self.canvas:
+                return True
+            widget = widget.master
+        return False
+
+    def _on_mousewheel(self, event):
+        if not self._pointer_inside():
+            return
+        if event.delta:
+            self.canvas.yview_scroll(int(-event.delta / 120), "units")
+
+    def _on_linux_scroll_up(self, _event):
+        if self._pointer_inside():
+            self.canvas.yview_scroll(-1, "units")
+
+    def _on_linux_scroll_down(self, _event):
+        if self._pointer_inside():
+            self.canvas.yview_scroll(1, "units")
+
+
+class HorizontalScrollableFrame(ttk.Frame):
+    def __init__(self, parent, *args, **kwargs):
+        super().__init__(parent, *args, **kwargs)
+        self.canvas = tk.Canvas(self, highlightthickness=0, borderwidth=0, height=42)
+        self.h_scrollbar = AutoScrollbar(self, orient="horizontal", command=self.canvas.xview)
+        self.canvas.configure(xscrollcommand=self.h_scrollbar.set)
+
+        self.content = ttk.Frame(self.canvas)
+        self.window_id = self.canvas.create_window((0, 0), window=self.content, anchor="nw")
+
+        self.canvas.grid(row=0, column=0, sticky="ew")
+        self.h_scrollbar.grid(row=1, column=0, sticky="ew")
+        self.h_scrollbar.grid_remove()
+        self.grid_columnconfigure(0, weight=1)
+
+        self.content.bind("<Configure>", self._on_content_configure)
+        self.canvas.bind("<Configure>", self._on_canvas_configure)
+        self.canvas.bind_all("<Shift-MouseWheel>", self._on_shift_mousewheel, add="+")
+
+    def _on_content_configure(self, _event=None):
+        req_width = max(self.content.winfo_reqwidth(), 1)
+        self.canvas.configure(scrollregion=(0, 0, req_width, self.canvas.winfo_height()))
+        self.after_idle(self._update_scrollbar_visibility)
+
+    def _on_canvas_configure(self, event):
+        req_width = max(self.content.winfo_reqwidth(), 1)
+        overflow = req_width > max(event.width, 1)
+        self.canvas.itemconfigure(self.window_id, height=event.height)
+        self.canvas.itemconfigure(self.window_id, width=req_width if overflow else event.width)
+        self.canvas.configure(scrollregion=(0, 0, req_width, event.height))
+        self.after_idle(self._update_scrollbar_visibility)
+
+    def _update_scrollbar_visibility(self):
+        req_width = max(self.content.winfo_reqwidth(), 1)
+        canvas_width = max(self.canvas.winfo_width(), 1)
+        overflow_threshold = 8
+        if req_width <= canvas_width + overflow_threshold:
+            self.h_scrollbar.grid_remove()
+            self.canvas.xview_moveto(0)
+            self.canvas.itemconfigure(self.window_id, width=canvas_width)
+            self.canvas.configure(scrollregion=(0, 0, canvas_width, self.canvas.winfo_height()))
+        else:
+            self.h_scrollbar.grid()
+            self.canvas.itemconfigure(self.window_id, width=req_width)
+            self.canvas.configure(scrollregion=(0, 0, req_width, self.canvas.winfo_height()))
+
+    def _pointer_inside(self):
+        widget = self.winfo_containing(self.winfo_pointerx(), self.winfo_pointery())
+        while widget is not None:
+            if widget == self.canvas:
+                return True
+            widget = widget.master
+        return False
+
+    def _on_shift_mousewheel(self, event):
+        if self._pointer_inside() and event.delta:
+            self.canvas.xview_scroll(int(-event.delta / 120), "units")
+
+
 @dataclass
 class DeviceRow:
     name_of_station: str
@@ -53,18 +194,42 @@ class Freeneta:
         self.quick_actions = []
         self.quick_menu_button = None
         self.quick_menu = None
+        self.show_topology_var = tk.BooleanVar(value=True)
+        self.show_notes_var = tk.BooleanVar(value=True)
+        self.column_vars = {
+            "name": tk.BooleanVar(value=True),
+            "mac": tk.BooleanVar(value=True),
+            "vendor": tk.BooleanVar(value=True),
+            "ip": tk.BooleanVar(value=True),
+            "netmask": tk.BooleanVar(value=True),
+            "gateway": tk.BooleanVar(value=True),
+            "family": tk.BooleanVar(value=True),
+        }
 
         self._build_ui()
         self.apply_theme()
 
     def _build_ui(self) -> None:
-        main = ttk.Frame(self.root, padding=12)
-        main.pack(fill="both", expand=True)
+        self.root.minsize(980, 620)
+
+        self.outer = ScrollableFrame(self.root)
+        self.outer.pack(fill="both", expand=True)
+
+        main = self.outer.content
+        main.configure(padding=12)
+        main.grid_columnconfigure(0, weight=1)
+        main.grid_rowconfigure(1, weight=1)
 
         top = ttk.Frame(main)
-        top.pack(fill="x", pady=(0, 10))
+        top.grid(row=0, column=0, sticky="ew", pady=(0, 10))
+        top.grid_columnconfigure(0, weight=1)
+        top.grid_columnconfigure(1, weight=0)
 
-        ttk.Label(top, text="Host interface").pack(side="left")
+        self.top_scroller = HorizontalScrollableFrame(top)
+        self.top_scroller.grid(row=0, column=0, sticky="ew")
+        top_bar = self.top_scroller.content
+
+        ttk.Label(top_bar, text="Host interface").grid(row=0, column=0, sticky="w")
 
         self.host_ip_var = tk.StringVar()
         self.host_interface_var = tk.StringVar()
@@ -73,67 +238,79 @@ class Freeneta:
         interface_values = [f"{iface} ({ip})" for iface, ip in self.host_interfaces]
 
         self.interface_combo = ttk.Combobox(
-            top,
+            top_bar,
             textvariable=self.host_interface_var,
             values=interface_values,
             state="readonly",
             width=34,
         )
-        self.interface_combo.pack(side="left", padx=(8, 6))
+        self.interface_combo.grid(row=0, column=1, sticky="w", padx=(8, 6))
         self.interface_combo.bind("<<ComboboxSelected>>", self.on_interface_selected)
 
-        self.refresh_interfaces_btn = ttk.Button(top, text="Refresh interfaces", command=self.refresh_interfaces_only)
-        self.refresh_interfaces_btn.pack(side="left", padx=(0, 14))
+        self.refresh_interfaces_btn = ttk.Button(top_bar, text="Refresh interfaces", command=self.refresh_interfaces_only)
+        self.refresh_interfaces_btn.grid(row=0, column=2, sticky="w", padx=(0, 14))
 
         self.refresh_host_interfaces(preserve_selection=False)
 
-        self.scan_btn = ttk.Button(top, text="Scan", command=self.scan_devices)
-        self.scan_btn.pack(side="left")
+        self.scan_btn = ttk.Button(top_bar, text="Scan", command=self.scan_devices)
+        self.scan_btn.grid(row=0, column=3, sticky="w")
 
-        self.refresh_btn = ttk.Button(top, text="Refresh", command=self.scan_devices)
-        self.refresh_btn.pack(side="left", padx=(8, 0))
+        self.refresh_btn = ttk.Button(top_bar, text="Refresh", command=self.scan_devices)
+        self.refresh_btn.grid(row=0, column=4, sticky="w", padx=(8, 0))
 
-        self.set_ip_btn = ttk.Button(top, text="Set IP", command=self.set_ip_for_selected)
-        self.set_ip_btn.pack(side="left", padx=(18, 0))
+        self.set_ip_btn = ttk.Button(top_bar, text="Set IP", command=self.set_ip_for_selected)
+        self.set_ip_btn.grid(row=0, column=5, sticky="w", padx=(18, 0))
 
-        self.set_name_btn = ttk.Button(top, text="Set Name", command=self.set_name_for_selected)
-        self.set_name_btn.pack(side="left", padx=(8, 0))
+        self.set_name_btn = ttk.Button(top_bar, text="Set Name", command=self.set_name_for_selected)
+        self.set_name_btn.grid(row=0, column=6, sticky="w", padx=(8, 0))
 
-        self.reset_btn = ttk.Button(top, text="Reset Comm", command=self.reset_selected)
-        self.reset_btn.pack(side="left", padx=(8, 0))
+        self.reset_btn = ttk.Button(top_bar, text="Reset Comm", command=self.reset_selected)
+        self.reset_btn.grid(row=0, column=7, sticky="w", padx=(8, 0))
 
         self.monitor_chk = ttk.Checkbutton(
-            top,
+            top_bar,
             text="Ping monitor",
             variable=self.ping_monitor_var,
             command=self.toggle_ping_monitor,
         )
-        self.monitor_chk.pack(side="left", padx=(18, 0))
+        self.monitor_chk.grid(row=0, column=8, sticky="w", padx=(18, 0))
 
-        self.dark_mode_chk = ttk.Checkbutton(
-            top,
-            text="Dark mode",
-            variable=self.dark_mode_var,
-            command=self.toggle_dark_mode,
-        )
-        self.dark_mode_chk.pack(side="left", padx=(18, 0))
+        self.view_button = ttk.Menubutton(top_bar, text="View")
+        self.view_button.grid(row=0, column=9, sticky="w", padx=(18, 0))
+        self.view_menu = tk.Menu(self.view_button, tearoff=False)
+        self.view_menu.add_checkbutton(label="Show topology", variable=self.show_topology_var, command=self.update_view_visibility)
+        self.view_menu.add_checkbutton(label="Show notes", variable=self.show_notes_var, command=self.update_view_visibility)
+        self.view_menu.add_separator()
+        self.columns_menu = tk.Menu(self.view_menu, tearoff=False)
+        self.view_menu.add_cascade(label="Columns", menu=self.columns_menu)
+        self.view_menu.add_separator()
+        self.view_menu.add_checkbutton(label="Dark mode", variable=self.dark_mode_var, command=self.toggle_dark_mode)
+        self.view_button["menu"] = self.view_menu
 
         self.status_var = tk.StringVar(value="Idle.")
-        ttk.Label(top, textvariable=self.status_var).pack(side="right")
+        ttk.Label(top, textvariable=self.status_var).grid(row=0, column=1, sticky="e", padx=(12, 0))
 
         body = ttk.PanedWindow(main, orient="horizontal")
-        body.pack(fill="both", expand=True)
+        body.grid(row=1, column=0, sticky="nsew")
+        self.body_pane = body
+        self.right_panel_visible = True
+        self.last_sash_fraction = 0.60
 
         left = ttk.Frame(body, padding=(0, 0, 8, 0))
         right = ttk.Frame(body)
+        left.grid_rowconfigure(0, weight=1)
+        left.grid_columnconfigure(0, weight=1)
+        right.grid_rowconfigure(2, weight=3)
+        right.grid_rowconfigure(4, weight=1)
+        right.grid_columnconfigure(0, weight=1)
         body.add(left, weight=3)
         body.add(right, weight=2)
 
         columns = ("name", "mac", "vendor", "ip", "ping", "netmask", "gateway", "family")
         tree_wrap = ttk.Frame(left)
-        tree_wrap.pack(fill="both", expand=True)
+        tree_wrap.grid(row=0, column=0, sticky="nsew")
 
-        self.tree = ttk.Treeview(tree_wrap, columns=columns, show="headings", height=18)
+        self.tree = ttk.Treeview(tree_wrap, columns=columns, show="headings", height=10)
         headings = {
             "name": "Station Name",
             "mac": "MAC",
@@ -144,6 +321,7 @@ class Freeneta:
             "gateway": "Gateway",
             "family": "Family",
         }
+        self.column_labels = headings.copy()
         widths = {
             "name": 180,
             "mac": 150,
@@ -154,12 +332,13 @@ class Freeneta:
             "gateway": 110,
             "family": 170,
         }
+        stretchable_columns = {"name", "vendor", "family"}
         for col in columns:
             self.tree.heading(col, text=headings[col])
-            self.tree.column(col, width=widths[col], anchor="w", stretch=False)
+            self.tree.column(col, width=widths[col], minwidth=90, anchor="w", stretch=col in stretchable_columns)
 
-        self.tree_scroll_y = ttk.Scrollbar(tree_wrap, orient="vertical", command=self.tree.yview)
-        self.tree_scroll_x = ttk.Scrollbar(tree_wrap, orient="horizontal", command=self.tree.xview)
+        self.tree_scroll_y = AutoScrollbar(tree_wrap, orient="vertical", command=self.tree.yview)
+        self.tree_scroll_x = AutoScrollbar(tree_wrap, orient="horizontal", command=self.tree.xview)
         self.tree.configure(yscrollcommand=self.tree_scroll_y.set, xscrollcommand=self.tree_scroll_x.set)
 
         self.tree.grid(row=0, column=0, sticky="nsew")
@@ -171,7 +350,7 @@ class Freeneta:
         self.tree.bind("<<TreeviewSelect>>", self.on_tree_selection_changed)
 
         action_row = ttk.Frame(left)
-        action_row.pack(fill="x", pady=(8, 0))
+        action_row.grid(row=1, column=0, sticky="ew", pady=(8, 0))
         ttk.Button(action_row, text="Export CSV", command=self.export_csv).pack(side="left")
         ttk.Button(action_row, text="Show Selected Details", command=self.show_selected_details).pack(side="left", padx=(8, 0))
 
@@ -180,22 +359,25 @@ class Freeneta:
         self.quick_menu = tk.Menu(self.quick_menu_button, tearoff=False)
         self.quick_menu_button["menu"] = self.quick_menu
 
+        self.left_panel = left
+        self.right_panel = right
+
         self.topology_title = ttk.Label(right, text="Topology View", font=("Segoe UI", 12, "bold"))
-        self.topology_title.pack(anchor="w")
+        self.topology_title.grid(row=0, column=0, sticky="w")
         self.topology_desc = ttk.Label(
             right,
             text="This is a visual summary, not real cable topology. DCP does discovery and commissioning; it does not know physical links.",
             wraplength=360,
             justify="left",
         )
-        self.topology_desc.pack(anchor="w", pady=(4, 8))
+        self.topology_desc.grid(row=1, column=0, sticky="ew", pady=(4, 8))
 
-        self.canvas = tk.Canvas(right, height=520, highlightthickness=1, cursor="hand2")
-        self.canvas.pack(fill="both", expand=True)
+        self.canvas = tk.Canvas(right, highlightthickness=1, cursor="hand2", height=260)
+        self.canvas.grid(row=2, column=0, sticky="nsew")
 
         self.notes_title = ttk.Label(right, text="Notes", font=("Segoe UI", 11, "bold"))
-        self.notes_title.pack(anchor="w", pady=(12, 4))
-        self.notes = tk.Text(right, height=9, wrap="word", relief="solid", borderwidth=1)
+        self.notes_title.grid(row=3, column=0, sticky="w", pady=(12, 4))
+        self.notes = tk.Text(right, height=7, wrap="word", relief="solid", borderwidth=1)
         self.notes.insert(
             "1.0",
             "Freeneta – v1.2\n\n"
@@ -217,11 +399,115 @@ class Freeneta:
             "- If the machine has no internet connection, vendor may remain Unknown\n\n"
         )
         self.notes.configure(state="disabled")
-        self.notes.pack(fill="x")
+        self.notes.grid(row=4, column=0, sticky="nsew")
 
+        self._build_columns_menu()
         self._update_tree_columns()
-        self.draw_topology()
+        self.update_view_visibility()
+        self.root.bind("<Configure>", self._on_root_resize, add="+")
+        self.body_pane.bind("<ButtonRelease-1>", lambda _e: self._save_current_sash_fraction(), add="+")
+        self.root.after_idle(self.top_scroller._update_scrollbar_visibility)
+        self.root.after_idle(self._restore_sash_fraction)
+        self.root.after_idle(self.outer._update_scrollbar_visibility)
         self.root.protocol("WM_DELETE_WINDOW", self.on_close)
+
+    def _on_root_resize(self, event=None) -> None:
+        if event is not None and event.widget is not self.root:
+            return
+        if hasattr(self, "outer"):
+            self.outer.after_idle(self.outer._update_scrollbar_visibility)
+        if hasattr(self, "top_scroller"):
+            self.top_scroller.after_idle(self.top_scroller._update_scrollbar_visibility)
+        if self.show_topology_var.get():
+            self.root.after_idle(self.draw_topology)
+
+    def update_view_visibility(self) -> None:
+        topology_visible = self.show_topology_var.get()
+        notes_visible = self.show_notes_var.get()
+        right_should_show = topology_visible or notes_visible
+
+        if topology_visible:
+            self.topology_title.grid()
+            self.topology_desc.grid()
+            self.canvas.grid()
+            self.topology_desc.configure(wraplength=max(self.right_panel.winfo_width() - 20, 220))
+            self.right_panel.grid_rowconfigure(2, weight=3)
+            self.root.after_idle(self.draw_topology)
+        else:
+            self.topology_title.grid_remove()
+            self.topology_desc.grid_remove()
+            self.canvas.grid_remove()
+            self.right_panel.grid_rowconfigure(2, weight=0)
+
+        if notes_visible:
+            self.notes_title.grid()
+            self.notes.grid()
+            self.right_panel.grid_rowconfigure(4, weight=1)
+        else:
+            self.notes_title.grid_remove()
+            self.notes.grid_remove()
+            self.right_panel.grid_rowconfigure(4, weight=0)
+
+        if right_should_show:
+            self._ensure_right_panel_visible()
+        else:
+            self._hide_right_panel()
+
+        if topology_visible and notes_visible:
+            self.status_var.set("Topology and notes shown.")
+        elif topology_visible:
+            self.status_var.set("Topology shown. Notes hidden.")
+        elif notes_visible:
+            self.status_var.set("Notes shown. Topology hidden.")
+        else:
+            self.status_var.set("Topology and notes hidden.")
+
+        if hasattr(self, "outer"):
+            self.outer.after_idle(self.outer._update_scrollbar_visibility)
+
+    def _save_current_sash_fraction(self) -> None:
+        if not getattr(self, "right_panel_visible", False):
+            return
+        try:
+            panes = tuple(self.body_pane.panes())
+            if len(panes) < 2:
+                return
+            total_width = max(self.body_pane.winfo_width(), 1)
+            sash_x = self.body_pane.sashpos(0)
+            self.last_sash_fraction = min(max(sash_x / total_width, 0.25), 0.85)
+        except tk.TclError:
+            pass
+
+    def _restore_sash_fraction(self) -> None:
+        if not getattr(self, "right_panel_visible", False):
+            return
+        try:
+            total_width = max(self.body_pane.winfo_width(), 1)
+            sash_x = int(total_width * self.last_sash_fraction)
+            self.body_pane.sashpos(0, sash_x)
+        except tk.TclError:
+            pass
+
+    def _hide_right_panel(self) -> None:
+        if not getattr(self, "right_panel_visible", False):
+            return
+        self._save_current_sash_fraction()
+        try:
+            self.body_pane.forget(self.right_panel)
+        except tk.TclError:
+            pass
+        self.right_panel_visible = False
+
+    def _ensure_right_panel_visible(self) -> None:
+        if getattr(self, "right_panel_visible", False):
+            self.root.after_idle(self._restore_sash_fraction)
+            return
+        try:
+            self.body_pane.add(self.right_panel, weight=2)
+        except tk.TclError:
+            return
+        self.right_panel_visible = True
+        self.root.after_idle(self._restore_sash_fraction)
 
     def _theme_palette(self):
         if self.dark_mode_var.get():
@@ -273,6 +559,8 @@ class Freeneta:
             style.configure("TPanedwindow", background=c["bg"])
             style.configure("TLabel", background=c["bg"], foreground=c["text"])
             style.configure("TButton", padding=6)
+            style.configure("TMenubutton", padding=6, background=c["panel"], foreground=c["text"])
+            style.map("TMenubutton", background=[("active", c["panel"])], foreground=[("active", c["text"])])
             style.configure("TCheckbutton", background=c["bg"], foreground=c["text"])
             style.map("TCheckbutton", background=[("active", c["bg"])], foreground=[("active", c["text"])])
             style.configure(
@@ -300,18 +588,55 @@ class Freeneta:
             pass
 
         self.root.configure(bg=c["bg"])
+        if hasattr(self, "outer"):
+            self.outer.configure(style="TFrame")
+            self.outer.canvas.configure(bg=c["bg"])
+            self.outer.content.configure(style="TFrame")
+        if hasattr(self, "top_scroller"):
+            self.top_scroller.configure(style="TFrame")
+            self.top_scroller.canvas.configure(bg=c["bg"])
+            self.top_scroller.content.configure(style="TFrame")
         self.canvas.configure(bg=c["canvas_bg"], highlightbackground=c["canvas_border"])
         self.notes.configure(bg=c["note_bg"], fg=c["text"], insertbackground=c["text"], highlightbackground=c["note_border"])
-        self.draw_topology()
+        if self.show_topology_var.get():
+            self.draw_topology()
 
     def toggle_dark_mode(self) -> None:
         self.apply_theme()
+        self.update_view_visibility()
+
+    def _build_columns_menu(self) -> None:
+        ordered_columns = ("name", "mac", "vendor", "ip", "netmask", "gateway", "family")
+        for col in ordered_columns:
+            self.columns_menu.add_checkbutton(
+                label=self.column_labels[col],
+                variable=self.column_vars[col],
+                command=lambda c=col: self.toggle_column(c),
+            )
+
+    def toggle_column(self, column_key: str) -> None:
+        enabled = [key for key, var in self.column_vars.items() if var.get()]
+        if not enabled:
+            self.column_vars[column_key].set(True)
+            self.status_var.set("At least one column must stay visible.")
+            return
+        self._update_tree_columns()
 
     def _update_tree_columns(self) -> None:
-        if self.ping_monitor_var.get():
-            self.tree.configure(displaycolumns=("name", "mac", "vendor", "ip", "ping", "netmask", "gateway", "family"))
-        else:
-            self.tree.configure(displaycolumns=("name", "mac", "vendor", "ip", "netmask", "gateway", "family"))
+        ordered_columns = ("name", "mac", "vendor", "ip", "ping", "netmask", "gateway", "family")
+        display_columns = []
+        for col in ordered_columns:
+            if col == "ping":
+                if self.ping_monitor_var.get():
+                    display_columns.append(col)
+            elif self.column_vars[col].get():
+                display_columns.append(col)
+        if not display_columns:
+            display_columns = ["name"]
+            self.column_vars["name"].set(True)
+        self.tree.configure(displaycolumns=tuple(display_columns))
+        if hasattr(self, "top_scroller"):
+            self.top_scroller.after_idle(self.top_scroller._update_scrollbar_visibility)
 
     def get_host_interfaces(self):
         interfaces = []
@@ -436,7 +761,8 @@ class Freeneta:
         self.refresh_btn.configure(state="normal")
         self.status_var.set(f"Found {len(rows)} device(s).")
         self._update_tree_columns()
-        self.draw_topology()
+        if self.show_topology_var.get():
+            self.draw_topology()
         self._start_vendor_lookup_for_unknowns()
         if self.ping_monitor_var.get():
             self._ensure_ping_monitor_running()
@@ -463,7 +789,8 @@ class Freeneta:
         )
 
     def on_tree_selection_changed(self, _event=None) -> None:
-        self.draw_topology()
+        if self.show_topology_var.get():
+            self.draw_topology()
         self._start_quick_action_scan_for_selected()
 
     def _selected_device(self) -> Optional[DeviceRow]:
@@ -480,7 +807,8 @@ class Freeneta:
         self.tree.selection_set(iid)
         self.tree.focus(iid)
         self.tree.see(iid)
-        self.draw_topology()
+        if self.show_topology_var.get():
+            self.draw_topology()
 
     def on_canvas_click(self, event) -> None:
         item = self.canvas.find_withtag("current")
@@ -830,7 +1158,8 @@ class Freeneta:
         self.devices[idx].ping_ms = ping_ms
         if self.tree.exists(str(idx)):
             self.tree.item(str(idx), values=self._device_values(self.devices[idx]))
-        self.draw_topology()
+        if self.show_topology_var.get():
+            self.draw_topology()
 
     def _ping_once(self, ip: str):
         is_windows = platform.system().lower().startswith("win")
