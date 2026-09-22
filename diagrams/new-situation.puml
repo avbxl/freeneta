@@ -1,0 +1,259 @@
+@startuml FreeNeta
+
+title FreeNeta - Current Architecture Class Diagram
+
+skinparam classAttributeIconSize 0
+skinparam packageStyle rectangle
+
+' =========================================================
+' Application Controller
+' =========================================================
+
+package "Application" {
+    class Freeneta {
+        - root: Tk
+        - profinet_service: ProfinetService
+        - network_service: NetworkService
+        - vendor_service: VendorService
+        - ping_service: PingService
+        - ping_monitor: PingMonitor
+        - connection_service: ConnectionService
+        - export_service: ExportService
+        - theme_manager: ThemeManager
+        - window: MainWindow
+        - devices: List[DeviceRow]
+        - host_interfaces: List[Tuple[str, str]]
+        - port_scan_token: int
+
+        + __init__(root: Tk)
+        + refresh_host_interfaces(preserve_selection: bool)
+        + on_interface_selected()
+        + refresh_interfaces_only()
+        + scan_devices()
+        + set_ip_for_selected()
+        + set_name_for_selected()
+        + reset_selected()
+        + show_selected_details()
+        + export_csv()
+        + on_toggle_ping_monitor(enabled: bool)
+        + on_device_selected(device: Optional[DeviceRow])
+        + on_close()
+    }
+}
+
+' =========================================================
+' Dataclasses / Domain
+' =========================================================
+
+package "Dataclasses" {
+    class DeviceRow {
+        + name_of_station: str
+        + mac: str
+        + ip: str
+        + netmask: str
+        + gateway: str
+        + family: str
+        + dcp_access: str
+        + vendor: str
+        + ping_status: str
+        + ping_ms: str
+        + ping_display: str
+        + dcp_access_normalized: str
+    }
+}
+
+' =========================================================
+' Services Layer (Pure Python)
+' =========================================================
+
+package "Services" {
+    class ProfinetService {
+        + is_dcp_available(): bool
+        + is_scapy_dcp_available(): bool
+        + discover_devices(host_ip: str, existing_devices: List[DeviceRow]): List[DeviceRow]
+        + set_device_ip(host_ip: str, mac: str, ip: str, netmask: str, gateway: str)
+        + set_device_name(host_ip: str, mac: str, name: str)
+        + reset_device_communication(host_ip: str, mac: str)
+        - _get_dcp_client(host_ip: str)
+        - _find_scapy_iface_by_ip(target_ip: str): Optional[str]
+        - _parse_raw_dcp_response(pkt): Optional[dict]
+        - _determine_dcp_access_from_raw(raw: Optional[dict]): str
+    }
+
+    class NetworkService {
+        + get_host_interfaces(): List[Tuple[str, str]]
+        + get_preferred_interface(interfaces: List[Tuple[str, str]]): str
+    }
+
+    class VendorService {
+        - vendor_cache: Dict[str, str]
+        - lock: Lock
+        - user_agent: str
+
+        + extract_mac_prefix(mac: str): str
+        + get_cached_vendor(mac: str): Optional[str]
+        + lookup_mac_vendor(mac: str): str
+        + resolve_vendors_async(devices: List[DeviceRow], on_resolved: Callable): Thread
+    }
+
+    class PingService {
+        + extract_ping_ms(output: str): str
+        + ping_once(ip: str): Tuple[str, str]
+    }
+
+    class PingMonitor {
+        - ping_service: PingService
+        - stop_event: Event
+        - thread: Optional[Thread]
+
+        + is_running(): bool
+        + start(get_devices_callback: Callable, on_ping_updated: Callable)
+        + stop()
+    }
+
+    class ConnectionService {
+        + is_port_open(ip: str, port: int, timeout: float): bool
+        + scan_standard_ports(ip: str, timeout: float): List[Tuple[int, str]]
+        + open_url(url: str)
+        + open_ssh(ip: str, username: str)
+    }
+
+    class ExportService {
+        + export_to_csv(file_path: str, devices: List[DeviceRow])
+    }
+}
+
+' =========================================================
+' UI Layer & Components
+' =========================================================
+
+package "UI" {
+    class ThemeManager {
+        - root: Tk
+        - ui_scale: float
+        - colors: Dict[str, str]
+
+        + detect_ui_scale(): float
+        + configure_tk_scaling()
+        + scaled(value: int): int
+        + scaled_geometry(width: int, height: int): str
+        + init_fonts()
+        + get_palette(dark_mode: bool): Dict[str, str]
+        + get_status_color(ping_status: str): str
+        + apply_theme(dark_mode: bool, tree: Treeview): Dict[str, str]
+    }
+
+    class Dialogs {
+        + ask_string(parent: Tk, title: str, prompt: str, initialvalue: str): Optional[str]
+        + ask_ip_config(parent: Tk, mac: str, ip: str, netmask: str, gateway: str): Optional[Tuple[str, str, str]]
+        + ask_station_name(parent: Tk, current_name: str): Optional[str]
+        + ask_ssh_username(parent: Tk, ip: str): Optional[str]
+        + confirm_reset(mac: str): bool
+        + show_device_details(dev: DeviceRow)
+        + show_error(title: str, message: str)
+        + show_info(title: str, message: str)
+    }
+
+    class MainWindow {
+        - root: Tk
+        - theme_manager: ThemeManager
+        - callbacks: Dict[str, Callable]
+        - outer: ScrollableFrame
+        - top_scroller: HorizontalScrollableFrame
+        - table_view: DeviceTableView
+        - topology_view: TopologyView
+        - set_ip_btn: Button
+        - set_name_btn: Button
+        - reset_btn: Button
+        - show_details_btn: Button
+        - quick_menu_button: Menubutton
+
+        + apply_initial_layout()
+        + update_view_visibility()
+        + apply_theme()
+        + set_device_selected_state(is_selected: bool)
+        + set_quick_actions(actions: List, message: str)
+    }
+
+    class DeviceTableView {
+        - tree: Treeview
+        - devices: List[DeviceRow]
+        - column_vars: Dict[str, BooleanVar]
+        - ping_column_enabled: bool
+
+        + build_columns_menu(menu: Menu, on_columns_changed: Callable)
+        + set_ping_monitor_enabled(enabled: bool)
+        + update_tree_columns()
+        + autosize_tree_columns(only_visible: bool, columns: List)
+        + set_devices(devices: List[DeviceRow])
+        + update_device_row(idx: int)
+        + get_selected_device(): Optional[DeviceRow]
+        + get_selected_index(): Optional[int]
+        + select_device_by_index(idx: int)
+    }
+
+    class TopologyView {
+        - canvas: Canvas
+        - devices: List[DeviceRow]
+        - selected_index: Optional[int]
+
+        + set_colors(bg: str, border: str)
+        + set_devices(devices: List[DeviceRow], selected_index: Optional[int])
+        + set_selected_index(selected_index: Optional[int])
+        + draw()
+    }
+
+    class ScrollableFrame {
+        - canvas: Canvas
+        - v_scrollbar: AutoScrollbar
+        - content: Frame
+    }
+
+    class HorizontalScrollableFrame {
+        - canvas: Canvas
+        - h_scrollbar: AutoScrollbar
+        - content: Frame
+    }
+
+    class AutoScrollbar {
+        + set(first, last)
+    }
+}
+
+' =========================================================
+' Relationships
+' =========================================================
+
+Freeneta *-- MainWindow
+Freeneta *-- ProfinetService
+Freeneta *-- NetworkService
+Freeneta *-- VendorService
+Freeneta *-- PingService
+Freeneta *-- PingMonitor
+Freeneta *-- ConnectionService
+Freeneta *-- ExportService
+Freeneta *-- ThemeManager
+Freeneta o-- "0..*" DeviceRow
+
+MainWindow *-- DeviceTableView
+MainWindow *-- TopologyView
+MainWindow *-- ScrollableFrame
+MainWindow *-- HorizontalScrollableFrame
+MainWindow ..> ThemeManager
+MainWindow ..> Dialogs
+
+DeviceTableView *-- AutoScrollbar
+ScrollableFrame *-- AutoScrollbar
+HorizontalScrollableFrame *-- AutoScrollbar
+
+DeviceTableView o-- "0..*" DeviceRow
+TopologyView ..> DeviceRow
+
+PingMonitor o-- PingService
+ProfinetService ..> DeviceRow
+VendorService ..> DeviceRow
+PingService ..> DeviceRow
+ExportService ..> DeviceRow
+Dialogs ..> DeviceRow
+
+@enduml

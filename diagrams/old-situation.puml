@@ -1,0 +1,238 @@
+@startuml FreeNeta_Previous
+
+title FreeNeta - Previous Class Diagram
+
+skinparam classAttributeIconSize 0
+
+' =========================================================
+' Main application
+' =========================================================
+
+class Freeneta {
+    - root: tk.Tk
+
+    - devices: List[DeviceRow]
+    - dark_mode_var: BooleanVar
+    - ping_monitor_var: BooleanVar
+    - show_topology_var: BooleanVar
+    - show_notes_var: BooleanVar
+    - column_vars: Dict
+
+    - vendor_cache: Dict
+    - vendor_lookup_lock: Lock
+
+    - ping_thread: Thread
+    - ping_monitor_stop: Event
+
+    - port_scan_token: int
+
+    - quick_actions: list
+    - quick_menu_button
+    - quick_menu
+
+    - colors: Dict
+    - default_font
+    - text_font
+    - heading_font
+    - small_font
+
+    - canvas_item_to_index: Dict
+
+    ' -------------------------
+    ' Application / UI
+    ' -------------------------
+
+    + __init__(root: tk.Tk)
+
+    - _init_fonts()
+    - _detect_ui_scale()
+    - _configure_tk_scaling()
+    - _scaled()
+    - _scaled_geometry()
+
+    - _build_ui()
+    - apply_theme()
+    - toggle_dark_mode()
+
+    - update_view_visibility()
+
+    ' -------------------------
+    ' Device table
+    ' -------------------------
+
+    - _build_columns_menu()
+    - toggle_column()
+    - _update_tree_columns()
+    - autosize_tree_columns()
+    - _tree_display_columns()
+    - _column_key_from_event()
+    - _remember_column_widths_before_drag()
+    - _detect_user_column_resize()
+    - _autosize_column_from_header_doubleclick()
+
+    - _device_values()
+    - _device_row_tag()
+    - on_tree_selection_changed()
+    - show_selected_details()
+
+    ' -------------------------
+    ' Network interfaces
+    ' -------------------------
+
+    + get_host_interfaces()
+    + on_interface_selected()
+    + refresh_host_interfaces()
+    + refresh_interfaces_only()
+
+    ' -------------------------
+    ' PROFINET / DCP
+    ' -------------------------
+
+    - _get_dcp()
+    - _normalize_dcp_access()
+    - _find_scapy_iface_by_ip()
+    - _parse_raw_dcp_response()
+    - _determine_dcp_access_from_raw()
+    - _discover_devices_with_access()
+
+    + scan_devices()
+    - _scan_worker()
+    - _load_scan_results()
+    - _scan_failed()
+
+    + set_ip_for_selected()
+    + set_name_for_selected()
+    + reset_selected()
+
+    ' -------------------------
+    ' Vendor lookup
+    ' -------------------------
+
+    - _mac_prefix()
+    - _start_vendor_lookup_for_unknowns()
+    - _lookup_vendor_worker()
+    - _lookup_vendor()
+    - _vendor_lookup_done()
+
+    ' -------------------------
+    ' Ping monitoring
+    ' -------------------------
+
+    + toggle_ping_monitor()
+    - _ensure_ping_monitor_running()
+    - _ping_worker()
+    - _ping_device()
+    - _update_ping_status()
+
+    ' -------------------------
+    ' Port scanning
+    ' -------------------------
+
+    - _start_port_scan()
+    - _port_scan_worker()
+    - _update_port_scan()
+    - _finish_port_scan()
+
+    ' -------------------------
+    ' Quick connect
+    ' -------------------------
+
+    - _build_quick_menu()
+    - _open_http()
+    - _open_https()
+    - _open_ssh()
+
+    ' -------------------------
+    ' Topology
+    ' -------------------------
+
+    + draw_topology()
+    - _draw_topology_node()
+    - _draw_topology_connection()
+    - _topology_click()
+
+    ' -------------------------
+    ' Export / dialogs
+    ' -------------------------
+
+    + export_csv()
+    + show_selected_details()
+
+    ' -------------------------
+    ' Lifecycle
+    ' -------------------------
+
+    + on_close()
+}
+
+
+' =========================================================
+' Data model
+' =========================================================
+
+class DeviceRow {
+    + name_of_station: str
+    + mac: str
+    + ip: str
+    + netmask: str
+    + gateway: str
+    + family: str
+    + dcp_access: str
+    + vendor: str
+    + ping_status: str
+    + ping_ms: str
+}
+
+
+' =========================================================
+' UI helper classes
+' =========================================================
+
+class AutoScrollbar {
+    + set(first, last)
+}
+
+
+class ScrollableFrame {
+    - canvas: Canvas
+    - v_scrollbar: AutoScrollbar
+    - content: Frame
+    - window_id
+
+    - _on_content_configure()
+    - _on_canvas_configure()
+    - _update_scrollbar_visibility()
+    - _pointer_inside()
+    - _on_mousewheel()
+    - _on_linux_scroll_up()
+    - _on_linux_scroll_down()
+}
+
+
+class HorizontalScrollableFrame {
+    - canvas: Canvas
+    - h_scrollbar: AutoScrollbar
+    - content: Frame
+    - window_id
+
+    - _on_content_configure()
+    - _on_canvas_configure()
+    - _update_scrollbar_visibility()
+    - _pointer_inside()
+    - _on_shift_mousewheel()
+}
+
+
+' =========================================================
+' Relationships
+' =========================================================
+
+Freeneta "1" *-- "0..*" DeviceRow
+
+Freeneta "1" *-- "1" ScrollableFrame
+Freeneta "1" *-- "1" HorizontalScrollableFrame
+
+ScrollableFrame "1" *-- "1" AutoScrollbar
+HorizontalScrollableFrame "1" *-- "1" AutoScrollbar
+
+@enduml
